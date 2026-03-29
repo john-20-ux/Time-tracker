@@ -641,7 +641,7 @@ async function startTimer(taskName){
   resetIdleTimers();
 }
 
-async function stopTimerCore(){
+function stopTimerCore(){
   if(!state.currentTask) return null;
   clearInterval(state.timerInterval);
   clearTimeout(state.notifTimer);
