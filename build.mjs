@@ -18,6 +18,7 @@ const entryPoints = {
 const staticFiles = [
   ['manifest.json', 'dist/manifest.json'],
   ['src/ui/widget/widget.css', 'dist/content.css'],
+  ['src/icon.png', 'dist/icon.png'],
 ];
 
 async function copyStatic() {

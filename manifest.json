@@ -6,11 +6,15 @@
   "permissions": [
     "storage",
     "alarms",
-    "notifications"
+    "notifications",
+    "idle"
   ],
   "host_permissions": [
     "<all_urls>"
   ],
+  "icons": {
+    "128": "icon.png"
+  },
   "background": {
     "service_worker": "service-worker.js"
   },

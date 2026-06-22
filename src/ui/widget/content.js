@@ -1,9 +1,10 @@
 import { DEFAULT_TASKS, TASK_COLORS, SK } from '../../shared/constants.js';
 import { pad, fmt, fmtTime, todayStr, dateLabel } from '../../core/time.js';
-import { cleanLabel, makeEntry } from '../../core/model.js';
+import { cleanLabel, makeEntry, reviveEntry } from '../../core/model.js';
 import { aggregateByTask, barPct, goalProgress, goalMap } from '../../core/summary.js';
 import { buildCsv, buildTsv, buildSheetsPayload } from '../../core/export.js';
 import { getStorage, setStorage } from '../../core/store.js';
+import { appendEntry, clearToday } from '../../core/log.js';
 import { MSG } from '../../shared/messages.js';
 
 const fontLink = document.createElement('link');
@@ -412,8 +413,8 @@ const state = {
   tasks:[], currentTask:null, startTime:null, elapsed:0,
   timerInterval:null, totalSeconds:0, log:[],
   history:{},
-  idleEnabled:false, idleMins:5, idleWarnTimer:null, idlePauseTimer:null,
-  notifEnabled:false, notifMins:90, notifTimer:null,
+  idleEnabled:false, idleMins:5,
+  notifEnabled:false, notifMins:90,
   sheetsUrl:'', lastTask:null, summaryOffset:0,
 };
 
@@ -428,13 +429,12 @@ function showToast(msg,dur){
 }
 
 // ─── SAVE / LOAD ─────────────────────────────────────────────────────────────
+// save() persists settings + tasks only. The day log (log/total/logDate/history)
+// is owned by core/log.js (appendEntry/clearToday) so the widget and the worker
+// can both write it without clobbering each other.
 async function save(){
   try{
     await setStorage(SK.tasks, JSON.stringify(state.tasks));
-    await setStorage(SK.log, JSON.stringify(state.log));
-    await setStorage(SK.total, String(state.totalSeconds));
-    await setStorage(SK.logDate, todayStr());
-    await setStorage(SK.history, JSON.stringify(state.history));
     await setStorage(SK.idleOn, String(state.idleEnabled));
     await setStorage(SK.idleMins, String(state.idleMins));
     await setStorage(SK.notifOn, String(state.notifEnabled));
@@ -488,6 +488,11 @@ async function load(){
         }
       }
       state.log=[]; state.totalSeconds=0;
+      // Persist the rollover so storage matches (log keys are no longer written
+      // by save(); they're owned by core/log.js appendEntry/clearToday).
+      await setStorage(SK.log, JSON.stringify([]));
+      await setStorage(SK.total, '0');
+      await setStorage(SK.logDate, todayStr());
     }
     const rh=await getStorage(SK.history);
     if(rh){
@@ -639,6 +644,7 @@ function applyActive(activeTimer){
     el.stopBtn.disabled=true;
     el.focusTaskName.textContent='Idle';
     el.focusTimer.textContent='00:00:00';
+    el.taskSelect.value='';
   }
 }
 
@@ -651,20 +657,16 @@ function tickDisplay(){
   el.focusTimer.textContent=display;
 }
 
-// Command the worker to start a task; arm idle/overrun in this (issuing) tab.
+// Command the worker to start a task. Idle + overrun are handled by the worker
+// (chrome.idle / chrome.alarms), so the widget no longer arms page-side timers.
 async function startTimer(taskName){
   const res=await chrome.runtime.sendMessage({type:MSG.START_TIMER,task:taskName});
   applyActive(res&&res.activeTimer?res.activeTimer:{task:taskName,startTime:Date.now()});
-  startOverrunTimer();
-  resetIdleTimers();
 }
 
 // Command the worker to stop; return a log entry for the finished block (or null).
 async function stopTimer(){
   const res=await chrome.runtime.sendMessage({type:MSG.STOP_TIMER});
-  clearTimeout(state.notifTimer);
-  clearTimeout(state.idleWarnTimer);
-  clearTimeout(state.idlePauseTimer);
   applyActive(null);
   if(!res||!res.stopped) return null;
   const {task,startTime,endTime}=res.stopped;
@@ -674,16 +676,38 @@ async function stopTimer(){
 }
 
 async function addLogRow(entry){
-  state.log.push(entry);
-  state.totalSeconds+=entry.durationSec;
-  // Also add to today's history
-  if(!state.history[todayStr()]) state.history[todayStr()]=[];
-  state.history[todayStr()].push(entry);
-  rebuildLogTable();
-  await save();
+  // Persist via the shared log module (read-modify-write); the UI refreshes
+  // through the storage.onChanged listener below.
+  await appendEntry(entry);
+  await reloadLog();
   // Show resume safely
   if (el.resumeName) el.resumeName.textContent = (state.lastTask || "");
   if (el.resumeBtn) el.resumeBtn.style.display = 'block';
+}
+
+// Reload the day log + history from storage into in-memory state and refresh
+// any visible views. Called on local changes and when the worker writes the log
+// (e.g. idle auto-stop), so every tab stays in sync.
+async function reloadLog(){
+  const savedDate=await getStorage(SK.logDate);
+  if(savedDate===todayStr()){
+    const rl=await getStorage(SK.log);
+    state.log=rl?JSON.parse(rl).map(reviveEntry):[];
+    state.totalSeconds=parseInt(await getStorage(SK.total)||'0',10);
+  }else{
+    state.log=[]; state.totalSeconds=0;
+  }
+  const rh=await getStorage(SK.history);
+  if(rh){
+    const raw2=JSON.parse(rh);
+    Object.keys(raw2).forEach(k=>{raw2[k]=raw2[k].map(reviveEntry);});
+    state.history=raw2;
+  }
+  rebuildLogTable();
+  const histActive=shadowRoot.getElementById('tab-history')?.classList.contains('active');
+  const sumActive=shadowRoot.getElementById('tab-summary')?.classList.contains('active');
+  if(histActive) buildHistory();
+  if(sumActive) buildSummary();
 }
 
 
@@ -705,44 +729,10 @@ el.noteSave.addEventListener('click',()=>{
   if(pendingEntry&&pendingCb){pendingCb();pendingEntry=null;pendingCb=null;}
 });
 
-// ─── OVERRUN ALERT ───────────────────────────────────────────────────────────
-function startOverrunTimer(){
-  clearTimeout(state.notifTimer);
-  if(!state.notifEnabled||!state.currentTask) return;
-  const ms=state.notifMins*60*1000;
-  state.notifTimer=setTimeout(function fire(){
-    showToast(`🔔 "${state.currentTask}" running over ${state.notifMins} min!`,5000);
-    if(Notification.permission==='granted'){
-      new Notification('⏱ Task Overrun',{body:`"${state.currentTask}" has been running for ${state.notifMins}+ minutes.`});
-    }
-    state.notifTimer=setTimeout(fire,ms);
-  },ms);
-}
-
-// ─── IDLE DETECTION ──────────────────────────────────────────────────────────
-let lastActivity=Date.now();
-function resetIdleTimers(){
-  lastActivity=Date.now();
-  clearTimeout(state.idleWarnTimer);
-  clearTimeout(state.idlePauseTimer);
-  if(!state.idleEnabled||!state.currentTask) return;
-  const ms=state.idleMins*60*1000;
-  state.idleWarnTimer=setTimeout(()=>{
-    showToast('💤 Idle detected — stopping in 30s…',4000);
-    state.idlePauseTimer=setTimeout(async ()=>{
-      if(state.currentTask){
-        const e=await stopTimer();
-        if(e){e.note='(auto-stopped: idle)';await addLogRow(e);el.taskSelect.value='';}
-        showToast('⏸ Auto-stopped — you seemed idle',3000);
-      }
-    },30000);
-  },ms);
-}
-['mousemove','keydown','mousedown','touchstart','scroll'].forEach(evt=>{
-  document.addEventListener(evt,()=>{
-    if(state.currentTask&&state.idleEnabled){resetIdleTimers();}
-  },{passive:true});
-});
+// ─── OVERRUN ALERT + IDLE DETECTION ──────────────────────────────────────────
+// Both now live in the service worker (chrome.alarms + chrome.idle) so they
+// fire reliably even when no tab is focused. The widget just reflects the
+// resulting changes via the storage.onChanged listener below.
 
 // ─── SUMMARY ─────────────────────────────────────────────────────────────────
 function buildSummary(){
@@ -858,9 +848,8 @@ el.resumeBtn.addEventListener('click',async ()=>{
 el.clearBtn.addEventListener('click',async ()=>{
   if(!confirm('Clear today\'s log?')) return;
   if(state.currentTask){ await stopTimer(); el.taskSelect.value=''; }
-  state.log=[]; state.totalSeconds=0;
-  delete state.history[todayStr()];
-  rebuildLogTable(); await save(); showToast('🗑 Log cleared');
+  await clearToday();
+  await reloadLog(); showToast('🗑 Log cleared');
 });
 
 el.collapseBtn.addEventListener('click',()=>{
@@ -899,11 +888,10 @@ el.newTaskInput.addEventListener('keydown',e=>{if(e.key==='Enter') el.addTaskBtn
 el.idleToggle.addEventListener('change',async ()=>{state.idleEnabled=el.idleToggle.checked;await save();});
 el.idleMinsInput.addEventListener('change',async ()=>{state.idleMins=parseInt(el.idleMinsInput.value)||5;await save();});
 el.notifToggle.addEventListener('change',async ()=>{
+  // The worker reschedules the overrun alarm when these settings change.
   state.notifEnabled=el.notifToggle.checked; await save();
-  if(state.notifEnabled&&Notification.permission==='default') Notification.requestPermission();
-  if(state.currentTask) startOverrunTimer();
 });
-el.notifMinsInput.addEventListener('change',async ()=>{state.notifMins=parseInt(el.notifMinsInput.value)||90;await save();if(state.currentTask) startOverrunTimer();});
+el.notifMinsInput.addEventListener('change',async ()=>{state.notifMins=parseInt(el.notifMinsInput.value)||90;await save();});
 el.sheetsUrlInput.addEventListener('change',async ()=>{
   state.sheetsUrl=el.sheetsUrlInput.value.trim(); await save();
   if(state.sheetsUrl){el.sheetsStatus.textContent='✅ URL configured';el.sheetsStatus.className='sheets-status ok';}
@@ -965,6 +953,10 @@ chrome.storage.onChanged.addListener((changes,area)=>{
   if(SK.activeTimer in changes){
     applyActive(changes[SK.activeTimer].newValue||null);
   }
+  // The log is written by this tab, other tabs, and the worker (idle auto-stop).
+  if(SK.log in changes || SK.total in changes || SK.history in changes){
+    reloadLog();
+  }
 });
 
 // ─── INIT ─────────────────────────────────────────────────────────────────────
@@ -976,7 +968,6 @@ chrome.storage.onChanged.addListener((changes,area)=>{
   el.notifToggle.checked=state.notifEnabled; el.notifMinsInput.value=state.notifMins;
   el.sheetsUrlInput.value=state.sheetsUrl;
   if(state.sheetsUrl){el.sheetsStatus.textContent='✅ URL configured';el.sheetsStatus.className='sheets-status ok';}
-  if(state.notifEnabled&&Notification.permission==='default') Notification.requestPermission();
   // Reflect any timer already running in the worker (survives tab reloads).
   try{const st=await chrome.runtime.sendMessage({type:MSG.GET_STATE});applyActive(st&&st.activeTimer?st.activeTimer:null);}catch(e){}
 })();
