@@ -1,0 +1,31 @@
+name: Build Windows desktop app
+
+# Builds the Electron desktop app's Windows installer on a real Windows runner
+# (so the NSIS installer + icon/version stamping work — no Wine needed). Run it
+# from the Actions tab (workflow_dispatch) or by pushing a tag like v2.0.0.
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - run: npm run dist:win
+      - uses: actions/upload-artifact@v4
+        with:
+          name: time-tracker-windows-installer
+          path: |
+            desktop/release/*.exe
+            desktop/release/*.blockmap
+          if-no-files-found: error

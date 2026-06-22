@@ -1,0 +1,36 @@
+{
+  "name": "time-tracker-desktop",
+  "version": "1.0.0",
+  "description": "Time Tracker — Windows desktop app (Electron), reusing the extension's UI + core.",
+  "private": true,
+  "main": "app/main.cjs",
+  "scripts": {
+    "build": "node build.mjs",
+    "start": "node build.mjs && electron .",
+    "pack:win": "node build.mjs && electron-builder --win dir --x64",
+    "dist:win": "node build.mjs && electron-builder --win nsis --x64"
+  },
+  "devDependencies": {
+    "electron": "^32.2.0",
+    "electron-builder": "^25.1.8",
+    "esbuild": "^0.24.0"
+  },
+  "build": {
+    "appId": "com.timetracker.desktop",
+    "productName": "Time Tracker",
+    "directories": { "output": "release", "buildResources": "build" },
+    "files": ["app/**/*", "package.json"],
+    "win": {
+      "target": ["nsis"],
+      "icon": "build/icon.png",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "Time Tracker"
+    }
+  }
+}

@@ -2,3 +2,8 @@ node_modules/
 dist/
 *.zip
 *.pem
+
+# desktop (Electron) build artifacts
+desktop/app/
+desktop/release/
+desktop/build/icon.png
