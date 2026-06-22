@@ -265,18 +265,29 @@ Each phase leaves a working extension.
 
 ---
 
-## 11. Open questions for you
+## 11. Decisions
 
-Before implementing, a few decisions shape the build:
+Resolved as the restructure progressed:
 
-1. **Primary surface** — should the main UI become the **popup**, or do you
-   want to keep the **floating widget** as the main thing because you like it
-   always visible while you work?
-2. **Where should the widget appear** — only on a few work sites, or truly
-   everywhere as today?
-3. **Build tooling** — fine to introduce a small bundler (esbuild/Vite) + npm,
-   or do you want to stay fully build-less (plain ES modules, no install step)?
-4. **TypeScript** — add it for safety, or stick to JSDoc-annotated JS?
+1. **Primary surface** → **Popup as primary** (decided). The main
+   Track/Summary/History UI will move into the toolbar popup (Phase 5); the
+   floating widget becomes a small optional always-on-top view, made opt-in per
+   site in Phase 7.
+2. **Where should the widget appear** — _open._ Leaning opt-in per site
+   (`optional_host_permissions`) rather than `<all_urls>`; finalize in Phase 7.
+3. **Build tooling** → **esbuild + npm** (done in Phase 2).
+4. **TypeScript** → staying with JSDoc-annotated JS for now.
 
-Answers to these decide the exact stack; the architecture above holds either way.
+## 12. Status
+
+- ✅ Phase 1 — pure `core/` modules + tests
+- ✅ Phase 2 — esbuild build pipeline; `content.js` consumes `core/`
+- ✅ Phase 3 — service worker owns the running timer
+- ✅ Security — closed stored-XSS path (untrusted localStorage + innerHTML)
+- ✅ Phase 4 — idle + overrun moved into the worker (chrome.idle / chrome.alarms)
+- ✅ Smoke tests — worker + widget integration harnesses (also fixed missing
+  note-modal/toast markup)
+- ⬜ Phase 5 — popup UI (primary surface)
+- ⬜ Phase 6 — options page
+- ⬜ Phase 7 — opt-in floating widget
 ```
