@@ -1,3 +1,8 @@
+import { DEFAULT_TASKS, TASK_COLORS, SK } from '../../shared/constants.js';
+import { pad, fmt, fmtTime, todayStr, dateLabel } from '../../core/time.js';
+import { cleanLabel, makeEntry } from '../../core/model.js';
+import { aggregateByTask, barPct, goalProgress, goalMap } from '../../core/summary.js';
+import { buildCsv, buildTsv, buildSheetsPayload } from '../../core/export.js';
 
 const fontLink = document.createElement('link');
 fontLink.href = 'https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap';
@@ -408,29 +413,7 @@ async function removeStorage(key) {
 (async function() {
   
 // ─── DEFAULTS ────────────────────────────────────────────────────────────────
-const DEFAULT_TASKS = [
-  {name:'📅  Daily Meetings',        goal:0},
-  {name:'🎫  Tickets Overview',       goal:0},
-  {name:'🔧  Technical Feasibility',  goal:0},
-  {name:'📋  Planning and Spec',      goal:0},
-  {name:'🔬  Research',               goal:0},
-  {name:'📝  Documentation',          goal:0},
-  {name:'📞  Customer Call',          goal:0},
-  {name:'🍵  Tea Break',              goal:0},
-  {name:'🍽  Lunch',                  goal:0},
-  {name:'📂  Others',                 goal:0},
-];
-
-const TASK_COLORS = ['#4a7c6f','#6b9e94','#8cb5af','#5c8c80','#7aaa9e',
-                     '#a0c4be','#3d6b5f','#5a8a7f','#709e94','#4a7c6f'];
-
-const SK = {
-  tasks:'tt3_tasks', log:'tt3_log', total:'tt3_total', logDate:'tt3_logDate',
-  history:'tt3_history', position:'tt3_position',
-  idleOn:'tt3_idleOn', idleMins:'tt3_idleMins',
-  notifOn:'tt3_notifOn', notifMins:'tt3_notifMins',
-  sheetsUrl:'tt3_sheetsUrl',
-};
+// DEFAULT_TASKS, TASK_COLORS, and SK are imported from ../../shared/constants.js
 
 const state = {
   tasks:[], currentTask:null, startTime:null, elapsed:0,
@@ -442,18 +425,7 @@ const state = {
 };
 
 // ─── UTILS ───────────────────────────────────────────────────────────────────
-const pad = n => String(n).padStart(2,'0');
-const fmt = s => `${pad(Math.floor(s/3600))}:${pad(Math.floor((s%3600)/60))}:${pad(s%60)}`;
-const fmtTime = d => new Date(d).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
-const todayStr = () => {const d=new Date();return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;}
-const dateLabel = ds => {
-  const t=todayStr();
-  if(ds===t) return 'Today';
-  const y=new Date(); y.setDate(y.getDate()-1);
-  const ys=`${y.getFullYear()}-${pad(y.getMonth()+1)}-${pad(y.getDate())}`;
-  if(ds===ys) return 'Yesterday';
-  return new Date(ds+'T00:00:00').toLocaleDateString([],{weekday:'short',month:'short',day:'numeric'});
-};
+// pad, fmt, fmtTime, todayStr, dateLabel are imported from ../../core/time.js
 
 function showToast(msg,dur){
   const t=shadowRoot.getElementById('toast');
@@ -627,7 +599,7 @@ async function startTimer(taskName){
   el.startLabel.textContent='Started '+fmtTime(state.startTime);
   el.stopBtn.disabled=false;
   el.resumeBtn.style.display='none';
-  el.focusTaskName.textContent=taskName.replace(/^\S+\s+/,'');
+  el.focusTaskName.textContent=cleanLabel(taskName);
   clearInterval(state.timerInterval);
   state.timerInterval=setInterval(()=>{
     state.elapsed++;
@@ -647,15 +619,12 @@ function stopTimerCore(){
   clearTimeout(state.notifTimer);
   clearTimeout(state.idleWarnTimer);
   clearTimeout(state.idlePauseTimer);
-  const entry={
+  const entry=makeEntry({
     task:state.currentTask,
     start:state.startTime,
     end:new Date(),
-    duration:fmt(state.elapsed),
-    durationSec:state.elapsed,
-    note:'',
-    date:todayStr()
-  };
+    elapsedSec:state.elapsed,
+  });
   state.lastTask=state.currentTask;
   state.currentTask=null;
   el.activeTask.textContent='No active task';
@@ -677,7 +646,7 @@ async function addLogRow(entry){
   rebuildLogTable();
   await save();
   // Show resume safely
-  el.resumeName?.textContent = (state.lastTask || "");
+  if (el.resumeName) el.resumeName.textContent = (state.lastTask || "");
   if (el.resumeBtn) el.resumeBtn.style.display = 'block';
 }
 
@@ -750,32 +719,21 @@ function buildSummary(){
     el.sumChart.innerHTML='<div class="summary-empty">No data for this day</div>';
     return;
   }
-  // Aggregate by task
-  const agg={};
-  entries.forEach(e=>{
-    if(!agg[e.task]) agg[e.task]=0;
-    agg[e.task]+=e.durationSec||0;
-  });
-  const total=Object.values(agg).reduce((a,b)=>a+b,0);
+  // Aggregate by task (core/summary.js)
+  const {total,max,sorted}=aggregateByTask(entries);
   el.sumTotal.textContent=fmt(total);
-  const max=Math.max(...Object.values(agg));
-  // Find goals
-  const goalMap={};
-  state.tasks.forEach(t=>{goalMap[t.name]=t.goal||0;});
+  const goals=goalMap(state.tasks);
   el.sumChart.innerHTML='';
-  const sorted=Object.entries(agg).sort((a,b)=>b[1]-a[1]);
   sorted.forEach(([task,sec],i)=>{
-    const pct=max>0?(sec/max*100):0;
-    const goalHrs=goalMap[task]||0;
-    const hrs=sec/3600;
+    const pct=barPct(sec,max);
+    const progress=goalProgress(sec,goals[task]||0);
     let goalBadge='';
-    if(goalHrs>0){
-      goalBadge=hrs>=goalHrs?'<span class="chart-bar-goal" style="background:rgba(74,124,111,.7)">✓ Done</span>':`<span class="chart-bar-goal">${Math.round(hrs/goalHrs*100)}%</span>`;
+    if(progress){
+      goalBadge=progress.done?'<span class="chart-bar-goal" style="background:rgba(74,124,111,.7)">✓ Done</span>':`<span class="chart-bar-goal">${progress.pct}%</span>`;
     }
     const color=TASK_COLORS[i%TASK_COLORS.length];
     const row=document.createElement('div'); row.className='chart-bar-row';
-    const cleanLabel=task.replace(/^\S+\s+/,'');
-    row.innerHTML=`<div class="chart-label" title="${task}">${cleanLabel}</div><div class="chart-bar-track"><div class="chart-bar-fill" style="width:${pct}%;background:${color}">${goalBadge}</div></div><div class="chart-bar-time">${fmt(sec)}</div>`;
+    row.innerHTML=`<div class="chart-label" title="${task}">${cleanLabel(task)}</div><div class="chart-bar-track"><div class="chart-bar-fill" style="width:${pct}%;background:${color}">${goalBadge}</div></div><div class="chart-bar-time">${fmt(sec)}</div>`;
     el.sumChart.appendChild(row);
   });
 }
@@ -829,10 +787,10 @@ el.taskSelect.addEventListener('change',()=>{
   const v=el.taskSelect.value; if(!v) return;
   if(state.currentTask){
     const e=stopTimerCore();
-    if(e) openNoteModal(e,()=>{ addLogRow(e); el.focusTaskName.textContent=v.replace(/^\S+\s+/,''); startTimer(v); el.taskSelect.value=v; });
+    if(e) openNoteModal(e,()=>{ addLogRow(e); el.focusTaskName.textContent=cleanLabel(v); startTimer(v); el.taskSelect.value=v; });
     return;
   }
-  el.focusTaskName.textContent=v.replace(/^\S+\s+/,''); startTimer(v); el.taskSelect.value=v;
+  el.focusTaskName.textContent=cleanLabel(v); startTimer(v); el.taskSelect.value=v;
 });
 
 el.stopBtn.addEventListener('click',async ()=>{
@@ -841,7 +799,7 @@ el.stopBtn.addEventListener('click',async ()=>{
 
 el.resumeBtn.addEventListener('click',async ()=>{
   if(!state.lastTask) return;
-  el.taskSelect.value=state.lastTask; el.focusTaskName.textContent=state.lastTask.replace(/^\S+\s+/,'');
+  el.taskSelect.value=state.lastTask; el.focusTaskName.textContent=cleanLabel(state.lastTask);
   startTimer(state.lastTask); el.resumeBtn.style.display='none';
 });
 
@@ -903,9 +861,7 @@ el.sheetsUrlInput.addEventListener('change',async ()=>{
 // ─── EXPORT ───────────────────────────────────────────────────────────────────
 el.csvBtn.addEventListener('click',()=>{
   if(state.log.length===0){ showToast('No entries to export'); return; }
-  const rows=[['Task','Start','End','Duration','Note']];
-  state.log.forEach(e=>rows.push([`"${e.task}"`,e.start.toLocaleString(),e.end.toLocaleString(),e.duration,`"${e.note||''}"`]));
-  const csv=rows.map(r=>r.join(',')).join('\n');
+  const csv=buildCsv(state.log);
   const blob=new Blob([csv],{type:'text/csv'});
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
   a.download=`timesheet-${todayStr()}.csv`; a.click(); URL.revokeObjectURL(a.href);
@@ -918,7 +874,7 @@ el.sheetsBtn.addEventListener('click',async ()=>{
     // Direct push via Apps Script
     el.sheetsBtn.innerHTML='<span class="btn-icon">📊</span> Pushing…'; el.sheetsBtn.disabled=true;
     try{
-      const payload={entries:state.log.map(e=>({task:e.task,start:e.start.toLocaleString(),end:e.end.toLocaleString(),duration:e.duration,note:e.note||'',date:e.date||todayStr()}))};
+      const payload=buildSheetsPayload(state.log);
       const res=await fetch(state.sheetsUrl,{method:'POST',body:JSON.stringify(payload),headers:{'Content-Type':'text/plain'}});
       const txt=await res.text();
       if(txt==='OK') showToast('📊 Pushed to Google Sheets!',3500); else throw new Error(txt);
@@ -926,8 +882,7 @@ el.sheetsBtn.addEventListener('click',async ()=>{
     finally{ el.sheetsBtn.innerHTML='<span class="btn-icon">📊</span> Push to Sheets'; el.sheetsBtn.disabled=false; }
   }else{
     // Clipboard fallback
-    const rows=[['Task','Start','End','Duration (HH:MM:SS)','Note'],...state.log.map(e=>[e.task,e.start.toLocaleString(),e.end.toLocaleString(),e.duration,e.note||''])];
-    const tsv=rows.map(r=>r.join('\t')).join('\n');
+    const tsv=buildTsv(state.log);
     navigator.clipboard.writeText(tsv).then(()=>{
       showToast('📊 Data copied — paste into Google Sheets',3500);
       window.open('https://sheets.new','_blank');

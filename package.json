@@ -5,6 +5,11 @@
   "type": "module",
   "private": true,
   "scripts": {
+    "build": "node build.mjs",
+    "watch": "node build.mjs --watch",
     "test": "node --test"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.1"
   }
 }
