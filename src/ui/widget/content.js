@@ -446,16 +446,12 @@ async function save(){
 
 async function load(){
   try{
-    // Auto-migration from window.localStorage to chrome.storage.local
-    if (window.localStorage.getItem(SK.tasks) && !(await getStorage('migrated_tt3'))) {
-      const keys = [SK.tasks, SK.log, SK.total, SK.logDate, SK.history, SK.idleOn, SK.idleMins, SK.notifOn, SK.notifMins, SK.sheetsUrl];
-      for (let k of keys) {
-        let v = window.localStorage.getItem(k);
-        if (v !== null) await setStorage(k, v);
-      }
-      await setStorage('migrated_tt3', 'true');
-      console.log('Migrated tt3 data from localStorage to chrome.storage.local');
-    }
+    // NOTE: an earlier version migrated data from window.localStorage into
+    // chrome.storage.local here. That was removed for security — this content
+    // script runs on every page, so window.localStorage is attacker-controlled:
+    // a malicious site could seed e.g. localStorage['tt3_tasks'] with an XSS
+    // payload that would then be persisted and rendered with extension
+    // privileges. The app's real data already lives in chrome.storage.local.
 
     
     const raw=await getStorage(SK.tasks);
@@ -542,6 +538,21 @@ function rebuildSelect(){
   });
 }
 
+// Safe DOM builders — user data is assigned as text/value (never parsed as
+// HTML), which closes the stored-XSS vector that template-literal innerHTML had.
+function mkCell(cls,text,title){
+  const td=document.createElement('td');
+  td.className=cls; td.textContent=text;
+  if(title!==undefined) td.title=title;
+  return td;
+}
+function mkSpan(cls,text,title){
+  const s=document.createElement('span');
+  s.className=cls; if(text!==undefined) s.textContent=text;
+  if(title!==undefined) s.title=title;
+  return s;
+}
+
 function rebuildLogTable(){
   el.logBody.innerHTML='';
   if(state.log.length===0){
@@ -552,7 +563,10 @@ function rebuildLogTable(){
   }
   [...state.log].reverse().forEach(e=>{
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td class="task-name" title="${e.task}">${e.task}</td><td class="time-col">${fmtTime(e.start)}</td><td class="dur">${e.duration}</td><td class="note-cell" title="${e.note||''}">${e.note||'—'}</td>`;
+    tr.appendChild(mkCell('task-name',e.task,e.task));
+    tr.appendChild(mkCell('time-col',fmtTime(e.start)));
+    tr.appendChild(mkCell('dur',e.duration));
+    tr.appendChild(mkCell('note-cell',e.note||'—',e.note||''));
     el.logBody.appendChild(tr);
   });
   el.logCount.textContent=`${state.log.length} entr${state.log.length===1?'y':'ies'}`;
@@ -563,7 +577,15 @@ function rebuildTaskListEdit(){
   el.taskListEdit.innerHTML='';
   state.tasks.forEach((t,i)=>{
     const row=document.createElement('div'); row.className='task-edit-row';
-    row.innerHTML=`<input class="task-edit-name" value="${t.name}" data-i="${i}"/><input class="task-edit-goal" type="number" min="0" max="24" step="0.5" value="${t.goal||0}" data-gi="${i}" title="Goal (hours)"/><button class="task-edit-del" data-di="${i}" title="Remove">✕</button>`;
+    const name=document.createElement('input');
+    name.className='task-edit-name'; name.value=t.name; name.dataset.i=i;
+    const goal=document.createElement('input');
+    goal.className='task-edit-goal'; goal.type='number';
+    goal.min='0'; goal.max='24'; goal.step='0.5';
+    goal.value=t.goal||0; goal.dataset.gi=i; goal.title='Goal (hours)';
+    const del=document.createElement('button');
+    del.className='task-edit-del'; del.dataset.di=i; del.title='Remove'; del.textContent='✕';
+    row.append(name,goal,del);
     el.taskListEdit.appendChild(row);
   });
   el.taskListEdit.querySelectorAll('.task-edit-name').forEach(inp=>{
@@ -741,13 +763,25 @@ function buildSummary(){
   sorted.forEach(([task,sec],i)=>{
     const pct=barPct(sec,max);
     const progress=goalProgress(sec,goals[task]||0);
-    let goalBadge='';
-    if(progress){
-      goalBadge=progress.done?'<span class="chart-bar-goal" style="background:rgba(74,124,111,.7)">✓ Done</span>':`<span class="chart-bar-goal">${progress.pct}%</span>`;
-    }
     const color=TASK_COLORS[i%TASK_COLORS.length];
     const row=document.createElement('div'); row.className='chart-bar-row';
-    row.innerHTML=`<div class="chart-label" title="${task}">${cleanLabel(task)}</div><div class="chart-bar-track"><div class="chart-bar-fill" style="width:${pct}%;background:${color}">${goalBadge}</div></div><div class="chart-bar-time">${fmt(sec)}</div>`;
+
+    const label=document.createElement('div');
+    label.className='chart-label'; label.title=task; label.textContent=cleanLabel(task);
+
+    const track=document.createElement('div'); track.className='chart-bar-track';
+    const fill=document.createElement('div'); fill.className='chart-bar-fill';
+    fill.style.width=pct+'%'; fill.style.background=color;
+    if(progress){
+      const badge=mkSpan('chart-bar-goal');
+      if(progress.done){ badge.style.background='rgba(74,124,111,.7)'; badge.textContent='✓ Done'; }
+      else { badge.textContent=progress.pct+'%'; }
+      fill.appendChild(badge);
+    }
+    track.appendChild(fill);
+
+    const time=document.createElement('div'); time.className='chart-bar-time'; time.textContent=fmt(sec);
+    row.append(label,track,time);
     el.sumChart.appendChild(row);
   });
 }
@@ -770,11 +804,16 @@ function buildHistory(){
     const totalSec=entries.reduce((a,e)=>a+(e.durationSec||0),0);
     const wrap=document.createElement('div'); wrap.className='hist-day';
     const hdr=document.createElement('div'); hdr.className='hist-day-header';
-    hdr.innerHTML=`<span class="hist-day-date">${dateLabel(ds)}</span><span class="hist-day-total">${fmt(totalSec)}</span>`;
+    hdr.append(mkSpan('hist-day-date',dateLabel(ds)),mkSpan('hist-day-total',fmt(totalSec)));
     const list=document.createElement('div'); list.className='hist-day-entries';
     entries.forEach(e=>{
       const row=document.createElement('div'); row.className='hist-entry';
-      row.innerHTML=`<span class="hist-entry-task" title="${e.task}">${e.task}</span><span class="hist-entry-note" title="${e.note||''}">${e.note?'📝':''}</span><span class="hist-entry-time">${fmtTime(e.start)}</span><span class="hist-entry-dur">${e.duration}</span>`;
+      row.append(
+        mkSpan('hist-entry-task',e.task,e.task),
+        mkSpan('hist-entry-note',e.note?'📝':'',e.note||''),
+        mkSpan('hist-entry-time',fmtTime(e.start)),
+        mkSpan('hist-entry-dur',e.duration),
+      );
       list.appendChild(row);
     });
     hdr.addEventListener('click',()=>list.classList.toggle('open'));
