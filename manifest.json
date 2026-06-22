@@ -26,6 +26,8 @@
     }
   ],
   "action": {
-    "default_title": "Toggle Time Tracker"
+    "default_title": "Time Tracker",
+    "default_popup": "popup.html",
+    "default_icon": { "128": "icon.png" }
   }
 }

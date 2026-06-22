@@ -11,6 +11,7 @@ const outdir = 'dist';
 // Entry points -> dist/ output names referenced by manifest.json.
 const entryPoints = {
   content: 'src/ui/widget/content.js',
+  popup: 'src/ui/popup/popup.js',
   'service-worker': 'src/background/service-worker.js',
 };
 
@@ -18,6 +19,7 @@ const entryPoints = {
 const staticFiles = [
   ['manifest.json', 'dist/manifest.json'],
   ['src/ui/widget/widget.css', 'dist/content.css'],
+  ['src/ui/popup/popup.html', 'dist/popup.html'],
   ['src/icon.png', 'dist/icon.png'],
 ];
 
@@ -34,6 +36,7 @@ const buildOptions = {
   format: 'iife', // content scripts run as classic scripts, not modules
   target: 'chrome110',
   outdir,
+  loader: { '.css': 'text' }, // import shared styles.css as a string
   logLevel: 'info',
 };
 

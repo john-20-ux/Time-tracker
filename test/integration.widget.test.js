@@ -21,6 +21,7 @@ before(async () => {
     bundle: true,
     format: 'iife',
     write: false,
+    loader: { '.css': 'text' },
     logLevel: 'silent',
   });
   const bundle = outputFiles[0].text;
