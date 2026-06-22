@@ -398,7 +398,22 @@ function doPost(e) {
     </div><!-- /history -->
 
   </div><!-- /body -->
-</div><!-- /tracker -->`;
+</div><!-- /tracker -->
+
+<!-- NOTE MODAL -->
+<div id="note-modal">
+  <div class="note-card">
+    <h3>Add a note</h3>
+    <textarea id="note-input" placeholder="What did you work on? (optional)"></textarea>
+    <div class="note-actions">
+      <button class="note-skip" id="note-skip">Skip</button>
+      <button class="note-save" id="note-save">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div id="toast"></div>`;
 shadowRoot.appendChild(container);
 
 // Storage adapters (getStorage/setStorage) are imported from
