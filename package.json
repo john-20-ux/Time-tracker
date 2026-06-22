@@ -1,0 +1,16 @@
+{
+  "name": "time-tracker-pro",
+  "version": "1.0.0",
+  "description": "Floating time tracking widget with focus mode and auto-idle detection.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "node build.mjs",
+    "watch": "node build.mjs --watch",
+    "test": "node --test --test-force-exit"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.1",
+    "jsdom": "^29.1.1"
+  }
+}
