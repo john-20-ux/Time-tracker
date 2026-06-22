@@ -39,6 +39,8 @@ export const SK = {
   activeTimer: 'tt3_activeTimer',
   // Whether the floating widget content script is registered (Phase 7).
   widgetEnabled: 'tt3_widgetEnabled',
+  // Whether the floating widget is minimized to its circle.
+  widgetMinimized: 'tt3_widgetMinimized',
 };
 
 // id used for the dynamically-registered floating-widget content script.
