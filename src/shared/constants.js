@@ -34,4 +34,7 @@ export const SK = {
   notifOn: 'tt3_notifOn',
   notifMins: 'tt3_notifMins',
   sheetsUrl: 'tt3_sheetsUrl',
+  // The running timer, owned by the service worker (Phase 3).
+  // Shape: { task: string, startTime: number(epoch ms) } | absent
+  activeTimer: 'tt3_activeTimer',
 };

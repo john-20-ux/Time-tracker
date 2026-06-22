@@ -3,6 +3,8 @@ import { pad, fmt, fmtTime, todayStr, dateLabel } from '../../core/time.js';
 import { cleanLabel, makeEntry } from '../../core/model.js';
 import { aggregateByTask, barPct, goalProgress, goalMap } from '../../core/summary.js';
 import { buildCsv, buildTsv, buildSheetsPayload } from '../../core/export.js';
+import { getStorage, setStorage } from '../../core/store.js';
+import { MSG } from '../../shared/messages.js';
 
 const fontLink = document.createElement('link');
 fontLink.href = 'https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap';
@@ -398,17 +400,8 @@ function doPost(e) {
 </div><!-- /tracker -->`;
 shadowRoot.appendChild(container);
 
-// Storage Adapters
-async function getStorage(key) {
-  const data = await chrome.storage.local.get([key]);
-  return data[key] === undefined ? null : data[key];
-}
-async function setStorage(key, value) {
-  await chrome.storage.local.set({ [key]: value });
-}
-async function removeStorage(key) {
-  await chrome.storage.local.remove([key]);
-}
+// Storage adapters (getStorage/setStorage) are imported from
+// ../../core/store.js — shared with the service worker.
 
 (async function() {
   
@@ -588,53 +581,74 @@ function rebuildTaskListEdit(){
 }
 
 // ─── TIMER ────────────────────────────────────────────────────────────────────
-async function startTimer(taskName){
-  state.currentTask=taskName;
-  state.startTime=new Date();
-  state.elapsed=0;
-  el.activeTask.textContent=taskName;
-  el.timerDisplay.textContent='00:00:00';
-  el.pulse.classList.add('on');
-  el.pulseText.textContent='Tracking';
-  el.startLabel.textContent='Started '+fmtTime(state.startTime);
-  el.stopBtn.disabled=false;
-  el.resumeBtn.style.display='none';
-  el.focusTaskName.textContent=cleanLabel(taskName);
+// The service worker owns the running timer (Phase 3). This widget only:
+//   • reflects the active timer in the UI (applyActive),
+//   • derives the ticking elapsed display from startTime (tickDisplay),
+//   • sends START/STOP commands to the worker (startTimer / stopTimer).
+// Every open tab calls applyActive from chrome.storage.onChanged, so they all
+// agree on what is running and for how long.
+
+// Render the UI for a given active timer ({ task, startTime } | null).
+// Display only — does not arm idle/overrun (the issuing tab does that).
+function applyActive(activeTimer){
   clearInterval(state.timerInterval);
-  state.timerInterval=setInterval(()=>{
-    state.elapsed++;
-    const display=fmt(state.elapsed);
-    el.timerDisplay.textContent=display;
-    el.focusTimer.textContent=display;
-  },1000);
-  // overrun alert
+  if(activeTimer){
+    state.currentTask=activeTimer.task;
+    state.startTime=new Date(activeTimer.startTime);
+    el.activeTask.textContent=activeTimer.task;
+    el.pulse.classList.add('on');
+    el.pulseText.textContent='Tracking';
+    el.startLabel.textContent='Started '+fmtTime(state.startTime);
+    el.stopBtn.disabled=false;
+    el.resumeBtn.style.display='none';
+    el.focusTaskName.textContent=cleanLabel(activeTimer.task);
+    el.taskSelect.value=activeTimer.task;
+    tickDisplay();
+    state.timerInterval=setInterval(tickDisplay,1000);
+  }else{
+    state.currentTask=null;
+    state.startTime=null;
+    state.elapsed=0;
+    el.activeTask.textContent='No active task';
+    el.timerDisplay.textContent='00:00:00';
+    el.pulse.classList.remove('on');
+    el.pulseText.textContent='Idle';
+    el.startLabel.textContent='';
+    el.stopBtn.disabled=true;
+    el.focusTaskName.textContent='Idle';
+    el.focusTimer.textContent='00:00:00';
+  }
+}
+
+// Recompute elapsed from the worker-owned startTime (not a local counter).
+function tickDisplay(){
+  if(!state.startTime) return;
+  state.elapsed=Math.max(0,Math.floor((Date.now()-state.startTime.getTime())/1000));
+  const display=fmt(state.elapsed);
+  el.timerDisplay.textContent=display;
+  el.focusTimer.textContent=display;
+}
+
+// Command the worker to start a task; arm idle/overrun in this (issuing) tab.
+async function startTimer(taskName){
+  const res=await chrome.runtime.sendMessage({type:MSG.START_TIMER,task:taskName});
+  applyActive(res&&res.activeTimer?res.activeTimer:{task:taskName,startTime:Date.now()});
   startOverrunTimer();
-  // idle detection
   resetIdleTimers();
 }
 
-function stopTimerCore(){
-  if(!state.currentTask) return null;
-  clearInterval(state.timerInterval);
+// Command the worker to stop; return a log entry for the finished block (or null).
+async function stopTimer(){
+  const res=await chrome.runtime.sendMessage({type:MSG.STOP_TIMER});
   clearTimeout(state.notifTimer);
   clearTimeout(state.idleWarnTimer);
   clearTimeout(state.idlePauseTimer);
-  const entry=makeEntry({
-    task:state.currentTask,
-    start:state.startTime,
-    end:new Date(),
-    elapsedSec:state.elapsed,
-  });
-  state.lastTask=state.currentTask;
-  state.currentTask=null;
-  el.activeTask.textContent='No active task';
-  el.pulse.classList.remove('on');
-  el.pulseText.textContent='Idle';
-  el.startLabel.textContent='';
-  el.stopBtn.disabled=true;
-  el.focusTaskName.textContent='Idle';
-  el.focusTimer.textContent='00:00:00';
-  return entry;
+  applyActive(null);
+  if(!res||!res.stopped) return null;
+  const {task,startTime,endTime}=res.stopped;
+  state.lastTask=task;
+  const elapsedSec=Math.max(0,Math.round((endTime-startTime)/1000));
+  return makeEntry({task,start:new Date(startTime),end:new Date(endTime),elapsedSec});
 }
 
 async function addLogRow(entry){
@@ -672,7 +686,7 @@ el.noteSave.addEventListener('click',()=>{
 // ─── OVERRUN ALERT ───────────────────────────────────────────────────────────
 function startOverrunTimer(){
   clearTimeout(state.notifTimer);
-  if(!state.notifEnabled) return;
+  if(!state.notifEnabled||!state.currentTask) return;
   const ms=state.notifMins*60*1000;
   state.notifTimer=setTimeout(function fire(){
     showToast(`🔔 "${state.currentTask}" running over ${state.notifMins} min!`,5000);
@@ -693,10 +707,10 @@ function resetIdleTimers(){
   const ms=state.idleMins*60*1000;
   state.idleWarnTimer=setTimeout(()=>{
     showToast('💤 Idle detected — stopping in 30s…',4000);
-    state.idlePauseTimer=setTimeout(()=>{
+    state.idlePauseTimer=setTimeout(async ()=>{
       if(state.currentTask){
-        const e=stopTimerCore();
-        if(e){e.note='(auto-stopped: idle)';addLogRow(e);el.taskSelect.value='';}
+        const e=await stopTimer();
+        if(e){e.note='(auto-stopped: idle)';await addLogRow(e);el.taskSelect.value='';}
         showToast('⏸ Auto-stopped — you seemed idle',3000);
       }
     },30000);
@@ -783,29 +797,28 @@ shadowRoot.querySelectorAll('.tab-btn').forEach(btn=>{
 });
 
 // ─── EVENTS ───────────────────────────────────────────────────────────────────
-el.taskSelect.addEventListener('change',()=>{
+el.taskSelect.addEventListener('change',async ()=>{
   const v=el.taskSelect.value; if(!v) return;
   if(state.currentTask){
-    const e=stopTimerCore();
-    if(e) openNoteModal(e,()=>{ addLogRow(e); el.focusTaskName.textContent=cleanLabel(v); startTimer(v); el.taskSelect.value=v; });
-    return;
+    const e=await stopTimer();
+    if(e){ openNoteModal(e,async ()=>{ await addLogRow(e); await startTimer(v); }); return; }
   }
-  el.focusTaskName.textContent=cleanLabel(v); startTimer(v); el.taskSelect.value=v;
+  await startTimer(v);
 });
 
 el.stopBtn.addEventListener('click',async ()=>{
-  const e=stopTimerCore(); if(e){ el.taskSelect.value=''; openNoteModal(e,()=>addLogRow(e)); }
+  const e=await stopTimer(); if(e){ el.taskSelect.value=''; openNoteModal(e,()=>addLogRow(e)); }
 });
 
 el.resumeBtn.addEventListener('click',async ()=>{
   if(!state.lastTask) return;
-  el.taskSelect.value=state.lastTask; el.focusTaskName.textContent=cleanLabel(state.lastTask);
-  startTimer(state.lastTask); el.resumeBtn.style.display='none';
+  el.taskSelect.value=state.lastTask;
+  await startTimer(state.lastTask); el.resumeBtn.style.display='none';
 });
 
 el.clearBtn.addEventListener('click',async ()=>{
   if(!confirm('Clear today\'s log?')) return;
-  if(state.currentTask){ stopTimerCore(); el.taskSelect.value=''; }
+  if(state.currentTask){ await stopTimer(); el.taskSelect.value=''; }
   state.log=[]; state.totalSeconds=0;
   delete state.history[todayStr()];
   rebuildLogTable(); await save(); showToast('🗑 Log cleared');
@@ -905,6 +918,16 @@ el.sheetsBtn.addEventListener('click',async ()=>{
   });
 })();
 
+// ─── CROSS-TAB SYNC ─────────────────────────────────────────────────────────
+// The worker writes the active timer to storage; every tab reflects it here, so
+// two open widgets never disagree about what is running.
+chrome.storage.onChanged.addListener((changes,area)=>{
+  if(area!=='local') return;
+  if(SK.activeTimer in changes){
+    applyActive(changes[SK.activeTimer].newValue||null);
+  }
+});
+
 // ─── INIT ─────────────────────────────────────────────────────────────────────
 (async function() { await load();
   try{const p=JSON.parse(await getStorage(SK.position)||'null');if(p?.left&&p?.top){el.tracker.style.bottom='auto';el.tracker.style.right='auto';el.tracker.style.left=p.left;el.tracker.style.top=p.top;}}catch(e){}
@@ -915,6 +938,8 @@ el.sheetsBtn.addEventListener('click',async ()=>{
   el.sheetsUrlInput.value=state.sheetsUrl;
   if(state.sheetsUrl){el.sheetsStatus.textContent='✅ URL configured';el.sheetsStatus.className='sheets-status ok';}
   if(state.notifEnabled&&Notification.permission==='default') Notification.requestPermission();
+  // Reflect any timer already running in the worker (survives tab reloads).
+  try{const st=await chrome.runtime.sendMessage({type:MSG.GET_STATE});applyActive(st&&st.activeTimer?st.activeTimer:null);}catch(e){}
 })();
 
 })();

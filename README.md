@@ -11,11 +11,12 @@ charts, and CSV / Google Sheets export.
 
 ```
 src/
-  core/      pure, framework-free logic (unit-tested): time, model, summary, export
-  shared/    constants: defaults, colors, storage keys
+  core/      pure, framework-free logic (unit-tested): time, model, summary,
+             export, timer (state transitions), store (chrome.storage adapter)
+  shared/    constants (defaults, colors, storage keys) + message types
   ui/
     widget/  the floating widget (content script + CSS)
-  background/ service worker
+  background/ service worker — single source of truth for the running timer
 test/        node:test unit tests for core/
 build.mjs    esbuild bundler -> dist/
 ```
