@@ -37,4 +37,9 @@ export const SK = {
   // The running timer, owned by the service worker (Phase 3).
   // Shape: { task: string, startTime: number(epoch ms) } | absent
   activeTimer: 'tt3_activeTimer',
+  // Whether the floating widget content script is registered (Phase 7).
+  widgetEnabled: 'tt3_widgetEnabled',
 };
+
+// id used for the dynamically-registered floating-widget content script.
+export const WIDGET_SCRIPT_ID = 'tt-widget';

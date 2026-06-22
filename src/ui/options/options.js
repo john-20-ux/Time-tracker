@@ -3,8 +3,25 @@
 // the popup/widget and the worker observe, so changes propagate live.
 
 import TRACKER_CSS from '../shared/styles.css';
-import { DEFAULT_TASKS, SK } from '../../shared/constants.js';
+import { DEFAULT_TASKS, SK, WIDGET_SCRIPT_ID } from '../../shared/constants.js';
 import { getStorage, setStorage } from '../../core/store.js';
+
+const ALL_URLS = { origins: ['<all_urls>'] };
+const WIDGET_REGISTRATION = {
+  id: WIDGET_SCRIPT_ID,
+  matches: ['<all_urls>'],
+  js: ['content.js'],
+  css: ['content.css'],
+  runAt: 'document_idle',
+};
+
+async function registerWidget() {
+  try { await chrome.scripting.unregisterContentScripts({ ids: [WIDGET_SCRIPT_ID] }); } catch (e) {}
+  await chrome.scripting.registerContentScripts([WIDGET_REGISTRATION]);
+}
+async function unregisterWidget() {
+  try { await chrome.scripting.unregisterContentScripts({ ids: [WIDGET_SCRIPT_ID] }); } catch (e) {}
+}
 
 const OPTIONS_CSS = `
 html,body{background:#f0ede8;margin:0;min-height:100vh;}
@@ -102,6 +119,24 @@ $('script-help-toggle').addEventListener('click', (e) => {
   b.style.display = b.style.display === 'block' ? 'none' : 'block';
 });
 
+// ─── FLOATING WIDGET (opt-in) ───────────────────────────────────────────────
+$('widget-toggle').addEventListener('change', async () => {
+  const on = $('widget-toggle').checked;
+  if (on) {
+    // chrome.permissions.request must run from this user gesture.
+    const granted = await chrome.permissions.request(ALL_URLS);
+    if (!granted) { $('widget-toggle').checked = false; toast('Permission denied'); return; }
+    await registerWidget();
+    await setStorage(SK.widgetEnabled, 'true');
+    toast('🪟 Widget enabled on new pages');
+  } else {
+    await unregisterWidget();
+    await setStorage(SK.widgetEnabled, 'false');
+    try { await chrome.permissions.remove(ALL_URLS); } catch (e) {}
+    toast('Widget disabled');
+  }
+});
+
 // ─── LOAD ─────────────────────────────────────────────────────────────────────
 (async function init() {
   const raw = await getStorage(SK.tasks);
@@ -116,4 +151,11 @@ $('script-help-toggle').addEventListener('click', (e) => {
   const url = (await getStorage(SK.sheetsUrl)) || '';
   $('sheets-url').value = url;
   renderSheetsStatus(url);
+
+  // Reflect the widget toggle from both the stored flag and the actual
+  // permission, so it stays truthful if the user revoked access elsewhere.
+  const wantWidget = (await getStorage(SK.widgetEnabled)) === 'true';
+  let hasPerm = false;
+  try { hasPerm = await chrome.permissions.contains(ALL_URLS); } catch (e) {}
+  $('widget-toggle').checked = wantWidget && hasPerm;
 })();

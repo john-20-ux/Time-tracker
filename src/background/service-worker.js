@@ -4,7 +4,7 @@
 // alarms (chrome.alarms) run here so they fire reliably even when no tab is
 // focused — and survive the worker itself being suspended.
 
-import { SK } from '../shared/constants.js';
+import { SK, WIDGET_SCRIPT_ID } from '../shared/constants.js';
 import { MSG } from '../shared/messages.js';
 import { getStorage, setStorage, removeStorage } from '../core/store.js';
 import { startTimer, stopTimer, elapsedSeconds } from '../core/timer.js';
@@ -139,6 +139,30 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (SK.idleMins in changes) refreshIdleDetection();
 });
 
-// On worker startup, restore detection interval and any pending overrun alarm.
+// ─── FLOATING WIDGET (opt-in) ─────────────────────────────────────────────────
+// Keep the dynamically-registered widget content script in step with the stored
+// flag + the actual host permission, in case a session/update cleared it or the
+// user revoked access. The options page performs the user-gesture enable/disable.
+async function reconcileWidget() {
+  try {
+    const enabled = (await getStorage(SK.widgetEnabled)) === 'true';
+    const hasPerm = await chrome.permissions.contains({ origins: ['<all_urls>'] });
+    const reg = await chrome.scripting.getRegisteredContentScripts({ ids: [WIDGET_SCRIPT_ID] });
+    const isRegistered = reg.length > 0;
+    if (enabled && hasPerm && !isRegistered) {
+      await chrome.scripting.registerContentScripts([{
+        id: WIDGET_SCRIPT_ID, matches: ['<all_urls>'],
+        js: ['content.js'], css: ['content.css'], runAt: 'document_idle',
+      }]);
+    } else if ((!enabled || !hasPerm) && isRegistered) {
+      await chrome.scripting.unregisterContentScripts({ ids: [WIDGET_SCRIPT_ID] });
+    }
+  } catch (e) {
+    console.error('reconcileWidget failed', e);
+  }
+}
+
+// On worker startup, restore detection interval, overrun alarm, widget script.
 refreshIdleDetection();
 scheduleOverrun();
+reconcileWidget();

@@ -12,6 +12,8 @@ import { SK } from '../src/shared/constants.js';
 
 const mem = {};
 let window;
+const scripting = { registered: [] };
+let permGranted = true;
 const flush = () => new Promise((r) => setTimeout(r, 10));
 
 before(async () => {
@@ -40,6 +42,16 @@ before(async () => {
         remove: async (keys) => { (Array.isArray(keys) ? keys : [keys]).forEach((k) => delete mem[k]); },
       },
       onChanged: { addListener() {} },
+    },
+    permissions: {
+      request: async () => permGranted,
+      remove: async () => true,
+      contains: async () => scripting.registered.length > 0,
+    },
+    scripting: {
+      getRegisteredContentScripts: async () => scripting.registered,
+      registerContentScripts: async (s) => { scripting.registered.push(...s); },
+      unregisterContentScripts: async () => { scripting.registered.length = 0; },
     },
   };
 
@@ -75,4 +87,34 @@ test('entering a Sheets URL persists and shows configured', async () => {
   await flush();
   assert.equal(mem[SK.sheetsUrl], 'https://example.com/exec');
   assert.match(window.document.getElementById('sheets-status').textContent, /configured/);
+});
+
+test('enabling the widget requests permission and registers the script', async () => {
+  permGranted = true;
+  const t = window.document.getElementById('widget-toggle');
+  t.checked = true;
+  t.dispatchEvent(new window.Event('change'));
+  await flush();
+  assert.equal(mem[SK.widgetEnabled], 'true');
+  assert.equal(scripting.registered.length, 1);
+  assert.equal(scripting.registered[0].id, 'tt-widget');
+});
+
+test('disabling the widget unregisters the script', async () => {
+  const t = window.document.getElementById('widget-toggle');
+  t.checked = false;
+  t.dispatchEvent(new window.Event('change'));
+  await flush();
+  assert.equal(mem[SK.widgetEnabled], 'false');
+  assert.equal(scripting.registered.length, 0);
+});
+
+test('denying permission reverts the toggle', async () => {
+  permGranted = false;
+  const t = window.document.getElementById('widget-toggle');
+  t.checked = true;
+  t.dispatchEvent(new window.Event('change'));
+  await flush();
+  assert.equal(t.checked, false);
+  assert.equal(mem[SK.widgetEnabled], 'false');
 });

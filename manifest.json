@@ -7,9 +7,10 @@
     "storage",
     "alarms",
     "notifications",
-    "idle"
+    "idle",
+    "scripting"
   ],
-  "host_permissions": [
+  "optional_host_permissions": [
     "<all_urls>"
   ],
   "icons": {
@@ -18,13 +19,6 @@
   "background": {
     "service_worker": "service-worker.js"
   },
-  "content_scripts": [
-    {
-      "matches": ["<all_urls>"],
-      "css": ["content.css"],
-      "js": ["content.js"]
-    }
-  ],
   "action": {
     "default_title": "Time Tracker",
     "default_popup": "popup.html",

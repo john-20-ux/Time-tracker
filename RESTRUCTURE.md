@@ -287,7 +287,7 @@ Resolved as the restructure progressed:
 - ✅ Phase 4 — idle + overrun moved into the worker (chrome.idle / chrome.alarms)
 - ✅ Smoke tests — worker + widget integration harnesses (also fixed missing
   note-modal/toast markup)
-- ⬜ Phase 5 — popup UI (primary surface)
-- ⬜ Phase 6 — options page
-- ⬜ Phase 7 — opt-in floating widget
+- ✅ Phase 5 — popup UI (primary surface) + shared `mountTrackerUI` controller
+- ✅ Phase 6 — dedicated options page (settings moved out of the gear panel)
+- ✅ Phase 7 — opt-in floating widget (optional_host_permissions + chrome.scripting)
 ```

@@ -38,6 +38,12 @@ globalThis.chrome = {
   },
   idle: { setDetectionInterval: (s) => { idleInterval = s; }, onStateChanged: evt() },
   notifications: { create: (o) => { notifs.push(o); } },
+  permissions: { contains: async () => false },
+  scripting: {
+    getRegisteredContentScripts: async () => [],
+    registerContentScripts: async () => {},
+    unregisterContentScripts: async () => {},
+  },
 };
 
 // Import after the mock is in place so the worker registers on it.
