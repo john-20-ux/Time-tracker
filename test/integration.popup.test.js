@@ -11,6 +11,8 @@ import { SK } from '../src/shared/constants.js';
 const mem = {};
 let window;
 const sentTypes = [];
+const injected = [];
+let closed = false;
 
 const flush = () => new Promise((r) => setTimeout(r, 10));
 
@@ -58,7 +60,10 @@ before(async () => {
       },
       onMessage: { addListener() {} },
     },
+    tabs: { query: async () => [{ id: 7 }] },
+    scripting: { executeScript: async (a) => { injected.push(a); } },
   };
+  window.close = () => { closed = true; };
 
   window.eval(bundle);
   await flush();
@@ -88,4 +93,13 @@ test('stop sends STOP_TIMER and opens the note modal', async () => {
     window.document.getElementById('note-modal').classList.contains('open'),
     'note modal opened after stop',
   );
+});
+
+test('pop-out button injects the widget (minimized) and closes the popup', async () => {
+  window.document.getElementById('collapse-btn').click();
+  await flush();
+  assert.equal(injected.length, 1, 'executeScript called once');
+  assert.equal(injected[0].files[0], 'content.js'); // cross-realm array; compare by value
+  assert.equal(mem[SK.widgetMinimized], 'true', 'widget set to minimized');
+  assert.equal(closed, true, 'popup closed');
 });

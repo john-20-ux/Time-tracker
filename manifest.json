@@ -8,7 +8,8 @@
     "alarms",
     "notifications",
     "idle",
-    "scripting"
+    "scripting",
+    "activeTab"
   ],
   "optional_host_permissions": [
     "<all_urls>"
