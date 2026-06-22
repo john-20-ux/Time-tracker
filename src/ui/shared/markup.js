@@ -25,77 +25,7 @@ export const TRACKER_HTML = `<div id="tracker">
     <div id="focus-timer">00:00:00</div>
   </div>
 
-  <!-- SETTINGS PANEL -->
-  <div id="settings-panel">
-
-    <div class="sett-section">
-      <div class="sett-label"><span>📋</span> Tasks &amp; Goals <span style="font-weight:400;font-size:9px;color:#b0a89e;">(set goal hrs)</span></div>
-      <div id="task-list-edit"></div>
-      <div class="add-task-row">
-        <input class="add-task-input" id="new-task-input" placeholder="Add new task…" maxlength="50"/>
-        <button class="add-task-btn" id="add-task-btn">+ Add</button>
-      </div>
-    </div>
-
-    <div class="sett-section">
-      <div class="sett-label"><span>🔔</span> Overrun Alert</div>
-      <div class="notif-row">
-        <label for="notif-toggle">Notify when task runs too long</label>
-        <label class="toggle-switch">
-          <input type="checkbox" id="notif-toggle"/>
-          <div class="toggle-track"></div>
-        </label>
-      </div>
-      <div class="idle-mins-wrap">
-        <span class="idle-mins-label">Alert after (minutes)</span>
-        <input type="number" class="idle-mins-input" id="notif-mins" value="90" min="5" max="480"/>
-      </div>
-    </div>
-
-    <div class="sett-section">
-      <div class="sett-label"><span>💤</span> Idle Detection</div>
-      <div class="notif-row">
-        <label for="idle-toggle">Auto-pause on idle</label>
-        <label class="toggle-switch">
-          <input type="checkbox" id="idle-toggle"/>
-          <div class="toggle-track"></div>
-        </label>
-      </div>
-      <div class="idle-mins-wrap">
-        <span class="idle-mins-label">Idle timeout (minutes)</span>
-        <input type="number" class="idle-mins-input" id="idle-mins" value="5" min="1" max="60"/>
-      </div>
-    </div>
-
-    <div class="sett-section">
-      <div class="sett-label"><span>📊</span> Google Sheets Push</div>
-      <div class="sheets-input-wrap">
-        <input class="sheets-url-input" id="sheets-url" placeholder="Paste Apps Script Web App URL…"/>
-      </div>
-      <div class="sheets-status" id="sheets-status">Not configured</div>
-      <a class="script-help" id="script-help-toggle">How to set up Google Sheets push ▸</a>
-      <div class="script-code-box" id="script-code-box">// 1. Open Google Sheets → Extensions → Apps Script
-// 2. Paste this code:
-
-function doPost(e) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName('TimeLog') || ss.insertSheet('TimeLog');
-  var data = JSON.parse(e.postData.contents);
-  if (sheet.getLastRow() === 0) {
-    sheet.appendRow(['Task','Start','End','Duration','Note','Date']);
-  }
-  data.entries.forEach(function(r) {
-    sheet.appendRow([r.task, r.start, r.end, r.duration, r.note||'', r.date||'']);
-  });
-  return ContentService.createTextOutput('OK');
-}
-
-// 3. Deploy → New Deployment → Web App
-//    Execute as: Me | Access: Anyone
-// 4. Copy the URL and paste it above</div>
-    </div>
-
-  </div><!-- /settings -->
+  <!-- Settings live on the dedicated options page (the gear opens it). -->
 
   <!-- TAB BAR -->
   <div id="tab-bar">

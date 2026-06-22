@@ -30,7 +30,7 @@ globalThis.chrome = {
     },
     onChanged: evt(),
   },
-  runtime: { onMessage: evt() },
+  runtime: { onMessage: evt(), openOptionsPage: () => { globalThis.__optsOpened = (globalThis.__optsOpened || 0) + 1; } },
   alarms: {
     create: (name, opts) => { alarms[name] = opts; },
     clear: async (name) => { delete alarms[name]; return true; },
@@ -97,6 +97,12 @@ test('GET_STATE reflects the running timer (survives a "reload")', async () => {
   await send({ type: MSG.START_TIMER, task: 'Research' });
   const res = await send({ type: MSG.GET_STATE });
   assert.equal(res.activeTimer.task, 'Research');
+});
+
+test('OPEN_OPTIONS opens the options page', async () => {
+  globalThis.__optsOpened = 0;
+  await send({ type: MSG.OPEN_OPTIONS });
+  assert.equal(globalThis.__optsOpened, 1);
 });
 
 test('settings change reschedules idle detection interval', async () => {

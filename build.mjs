@@ -12,6 +12,7 @@ const outdir = 'dist';
 const entryPoints = {
   content: 'src/ui/widget/content.js',
   popup: 'src/ui/popup/popup.js',
+  options: 'src/ui/options/options.js',
   'service-worker': 'src/background/service-worker.js',
 };
 
@@ -20,6 +21,7 @@ const staticFiles = [
   ['manifest.json', 'dist/manifest.json'],
   ['src/ui/widget/widget.css', 'dist/content.css'],
   ['src/ui/popup/popup.html', 'dist/popup.html'],
+  ['src/ui/options/options.html', 'dist/options.html'],
   ['src/icon.png', 'dist/icon.png'],
 ];
 

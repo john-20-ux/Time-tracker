@@ -36,7 +36,6 @@ const tracker = shadowRoot.getElementById('tracker');
 const header = shadowRoot.getElementById('header');
 const focusBtn = shadowRoot.getElementById('focus-btn');
 const collapseBtn = shadowRoot.getElementById('collapse-btn');
-const settingsPanel = shadowRoot.getElementById('settings-panel');
 
 // Restore saved position.
 (async function () {
@@ -52,7 +51,6 @@ const settingsPanel = shadowRoot.getElementById('settings-panel');
 collapseBtn.addEventListener('click', () => {
   const c = tracker.classList.toggle('collapsed');
   collapseBtn.textContent = c ? '+' : '−'; collapseBtn.title = c ? 'Expand' : 'Collapse';
-  if (c) settingsPanel.classList.remove('open');
 });
 
 focusBtn.addEventListener('click', () => {

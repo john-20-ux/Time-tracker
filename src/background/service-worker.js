@@ -116,6 +116,10 @@ async function handleMessage(msg) {
       return { stopped: stopped || null };
     }
 
+    case MSG.OPEN_OPTIONS:
+      chrome.runtime.openOptionsPage();
+      return {};
+
     default:
       return {};
   }

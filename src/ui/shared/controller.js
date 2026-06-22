@@ -32,19 +32,10 @@ export function mountTrackerUI(root) {
     t._tid = setTimeout(() => t.classList.remove('show'), dur || 2500);
   }
 
-  // ─── SAVE / LOAD ────────────────────────────────────────────────────────
-  // save() persists settings + tasks only. The day log is owned by core/log.js.
-  async function save() {
-    try {
-      await setStorage(SK.tasks, JSON.stringify(state.tasks));
-      await setStorage(SK.idleOn, String(state.idleEnabled));
-      await setStorage(SK.idleMins, String(state.idleMins));
-      await setStorage(SK.notifOn, String(state.notifEnabled));
-      await setStorage(SK.notifMins, String(state.notifMins));
-      await setStorage(SK.sheetsUrl, state.sheetsUrl);
-    } catch (e) {}
-  }
-
+  // ─── LOAD ───────────────────────────────────────────────────────────────
+  // The controller only reads config (tasks for the dropdown/summary, sheetsUrl
+  // for export). Tasks + settings are written by the options page; the day log
+  // is owned by core/log.js. Cross-tab sync below keeps this in step.
   async function load() {
     try {
       const raw = await getStorage(SK.tasks);
@@ -92,10 +83,9 @@ export function mountTrackerUI(root) {
 
   // ─── ELEMENTS ─────────────────────────────────────────────────────────────
   const el = {
-    tracker: $id('tracker'), headerDate: $id('header-date'),
+    headerDate: $id('header-date'),
     focusTaskName: $id('focus-task-name'), focusTimer: $id('focus-timer'),
-    settingsBtn: $id('settings-btn'), settingsPanel: $id('settings-panel'),
-    clearBtn: $id('clear-btn'),
+    settingsBtn: $id('settings-btn'), clearBtn: $id('clear-btn'),
     activeTask: $id('active-task'), timerDisplay: $id('timer-display'),
     pulse: $id('pulse'), pulseText: $id('pulse-text'), startLabel: $id('start-time-label'),
     stopBtn: $id('stop-btn'), resumeBtn: $id('resume-btn'), resumeName: $id('resume-task-name'),
@@ -104,11 +94,6 @@ export function mountTrackerUI(root) {
     csvBtn: $id('csv-btn'), sheetsBtn: $id('sheets-btn'),
     noteModal: $id('note-modal'), noteInput: $id('note-input'),
     noteSkip: $id('note-skip'), noteSave: $id('note-save'),
-    taskListEdit: $id('task-list-edit'), newTaskInput: $id('new-task-input'), addTaskBtn: $id('add-task-btn'),
-    idleToggle: $id('idle-toggle'), idleMinsInput: $id('idle-mins'),
-    notifToggle: $id('notif-toggle'), notifMinsInput: $id('notif-mins'),
-    sheetsUrlInput: $id('sheets-url'), sheetsStatus: $id('sheets-status'),
-    scriptHelpToggle: $id('script-help-toggle'), scriptCodeBox: $id('script-code-box'),
     historyPanel: $id('history-panel'),
     sumPrev: $id('sum-prev'), sumNext: $id('sum-next'),
     sumDateLabel: $id('sum-date-label'), sumTotal: $id('sum-total'), sumChart: $id('sum-chart'),
@@ -155,35 +140,6 @@ export function mountTrackerUI(root) {
     });
     el.logCount.textContent = `${state.log.length} entr${state.log.length === 1 ? 'y' : 'ies'}`;
     el.totalDisplay.textContent = fmt(state.totalSeconds);
-  }
-
-  function rebuildTaskListEdit() {
-    el.taskListEdit.innerHTML = '';
-    state.tasks.forEach((t, i) => {
-      const row = document.createElement('div'); row.className = 'task-edit-row';
-      const name = document.createElement('input');
-      name.className = 'task-edit-name'; name.value = t.name; name.dataset.i = i;
-      const goal = document.createElement('input');
-      goal.className = 'task-edit-goal'; goal.type = 'number';
-      goal.min = '0'; goal.max = '24'; goal.step = '0.5';
-      goal.value = t.goal || 0; goal.dataset.gi = i; goal.title = 'Goal (hours)';
-      const del = document.createElement('button');
-      del.className = 'task-edit-del'; del.dataset.di = i; del.title = 'Remove'; del.textContent = '✕';
-      row.append(name, goal, del);
-      el.taskListEdit.appendChild(row);
-    });
-    el.taskListEdit.querySelectorAll('.task-edit-name').forEach((inp) => {
-      inp.addEventListener('change', async () => { state.tasks[inp.dataset.i].name = inp.value; await save(); rebuildSelect(); });
-    });
-    el.taskListEdit.querySelectorAll('.task-edit-goal').forEach((inp) => {
-      inp.addEventListener('change', async () => { state.tasks[parseInt(inp.dataset.gi)].goal = parseFloat(inp.value) || 0; await save(); });
-    });
-    el.taskListEdit.querySelectorAll('.task-edit-del').forEach((btn) => {
-      btn.addEventListener('click', async () => {
-        if (state.tasks.length <= 1) { showToast('Need at least one task'); return; }
-        state.tasks.splice(parseInt(btn.dataset.di), 1); await save(); rebuildSelect(); rebuildTaskListEdit();
-      });
-    });
   }
 
   // ─── TIMER ──────────────────────────────────────────────────────────────────
@@ -404,36 +360,10 @@ export function mountTrackerUI(root) {
     await reloadLog(); showToast('🗑 Log cleared');
   });
 
+  // The gear opens the dedicated options page (works from a content script too,
+  // where chrome.runtime.openOptionsPage isn't available — the worker does it).
   el.settingsBtn.addEventListener('click', () => {
-    const o = el.settingsPanel.classList.toggle('open');
-    el.settingsBtn.classList.toggle('active-btn', o);
-    if (o) { rebuildTaskListEdit(); el.tracker.classList.remove('collapsed'); el.tracker.classList.remove('focus-mode'); }
-  });
-
-  el.scriptHelpToggle.addEventListener('click', (e) => {
-    e.preventDefault(); const b = el.scriptCodeBox;
-    b.style.display = b.style.display === 'none' ? 'block' : 'none';
-  });
-
-  // Settings save handlers
-  el.addTaskBtn.addEventListener('click', async () => {
-    const v = el.newTaskInput.value.trim(); if (!v) return;
-    state.tasks.push({ name: v, goal: 0 }); el.newTaskInput.value = '';
-    await save(); rebuildSelect(); rebuildTaskListEdit(); showToast('✅ Task added');
-  });
-  el.newTaskInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') el.addTaskBtn.click(); });
-
-  el.idleToggle.addEventListener('change', async () => { state.idleEnabled = el.idleToggle.checked; await save(); });
-  el.idleMinsInput.addEventListener('change', async () => { state.idleMins = parseInt(el.idleMinsInput.value) || 5; await save(); });
-  el.notifToggle.addEventListener('change', async () => {
-    // The worker reschedules the overrun alarm when these settings change.
-    state.notifEnabled = el.notifToggle.checked; await save();
-  });
-  el.notifMinsInput.addEventListener('change', async () => { state.notifMins = parseInt(el.notifMinsInput.value) || 90; await save(); });
-  el.sheetsUrlInput.addEventListener('change', async () => {
-    state.sheetsUrl = el.sheetsUrlInput.value.trim(); await save();
-    if (state.sheetsUrl) { el.sheetsStatus.textContent = '✅ URL configured'; el.sheetsStatus.className = 'sheets-status ok'; }
-    else { el.sheetsStatus.textContent = 'Not configured'; el.sheetsStatus.className = 'sheets-status'; }
+    chrome.runtime.sendMessage({ type: MSG.OPEN_OPTIONS });
   });
 
   // ─── EXPORT ─────────────────────────────────────────────────────────────────
@@ -471,6 +401,13 @@ export function mountTrackerUI(root) {
     if (area !== 'local') return;
     if (SK.activeTimer in changes) applyActive(changes[SK.activeTimer].newValue || null);
     if (SK.log in changes || SK.total in changes || SK.history in changes) reloadLog();
+    // Tasks/sheetsUrl are edited on the options page; reflect changes here.
+    if (SK.tasks in changes) {
+      try { state.tasks = JSON.parse(changes[SK.tasks].newValue || '[]'); } catch (e) {}
+      rebuildSelect();
+      if ($id('tab-summary')?.classList.contains('active')) buildSummary();
+    }
+    if (SK.sheetsUrl in changes) state.sheetsUrl = changes[SK.sheetsUrl].newValue || '';
   });
 
   // ─── INIT ─────────────────────────────────────────────────────────────────
@@ -478,10 +415,6 @@ export function mountTrackerUI(root) {
     await load();
     el.headerDate.textContent = todayStr();
     rebuildSelect(); rebuildLogTable();
-    el.idleToggle.checked = state.idleEnabled; el.idleMinsInput.value = state.idleMins;
-    el.notifToggle.checked = state.notifEnabled; el.notifMinsInput.value = state.notifMins;
-    el.sheetsUrlInput.value = state.sheetsUrl;
-    if (state.sheetsUrl) { el.sheetsStatus.textContent = '✅ URL configured'; el.sheetsStatus.className = 'sheets-status ok'; }
     try {
       const st = await chrome.runtime.sendMessage({ type: MSG.GET_STATE });
       applyActive(st && st.activeTimer ? st.activeTimer : null);

@@ -14,4 +14,8 @@ export const MSG = {
   // Widget -> worker: stop the running timer.
   //   reply: { stopped: { task, startTime, endTime } | null }
   STOP_TIMER: 'STOP_TIMER',
+
+  // Any UI -> worker: open the options page (works from content scripts too,
+  // where chrome.runtime.openOptionsPage is unavailable).
+  OPEN_OPTIONS: 'OPEN_OPTIONS',
 };
